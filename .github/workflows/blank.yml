@@ -5,37 +5,83 @@ on:
   push:
     branches:
       - main
+      - master
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
+      # 1. Soo qaado faylasha repository-ga
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      # 2. Diyaari Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
+      # 3. Diyaari Android SDK
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build APK
+      # 4. Rakib Android SDK packages
+      - name: Install Android SDK packages
         run: |
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            ./gradlew assembleDebug
-          else
-            echo "Android Gradle project not found: gradlew is missing."
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      # 5. Hubi in mashruuca Android-ku jiro
+      - name: Check Android project
+        run: |
+          echo "Checking Android project files..."
+
+          if [ ! -f "./gradlew" ]; then
+            echo "::error::gradlew was not found in the repository root."
+            echo "Upload the complete Android Gradle project."
             exit 1
           fi
 
-      - name: Upload APK
+          if [ ! -f "./settings.gradle" ] && [ ! -f "./settings.gradle.kts" ]; then
+            echo "::error::settings.gradle or settings.gradle.kts was not found."
+            exit 1
+          fi
+
+          chmod +x ./gradlew
+
+      # 6. Dhis APK-ga
+      - name: Build Debug APK
+        run: |
+          ./gradlew --no-daemon assembleDebug
+
+      # 7. Raadi APK-ga la dhisay
+      - name: Locate APK
+        id: apk
+        run: |
+          APK_PATH=$(find . -type f -path "*/build/outputs/apk/*/*.apk" \
+            ! -path "*/build/outputs/apk/androidTest/*" | head -n 1)
+
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK was generated."
+            exit 1
+          fi
+
+          echo "APK_PATH=$APK_PATH" >> "$GITHUB_ENV"
+          echo "APK found: $APK_PATH"
+
+      # 8. Soo saar APK-ga si loo soo dejisto
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Daba-Taag-Android-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
+          retention-days: 14
